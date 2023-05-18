@@ -1,4 +1,5 @@
 {
-    "map_dimensions": 16,
-    "colours": ["red", "black"]
+    "map_dimensions": 8,
+    "colours": ["yellow", "black"],
+    "circle_size": 40
 }
