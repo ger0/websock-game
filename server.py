@@ -34,9 +34,9 @@ class State(Enum):
 
 
 class Request(Enum):
-    CONFIG = 0
-    UPDATE = 1
-    BOARD = 2
+    CONFIGURE_GAME = 0
+    UPDATE_BOARD = 1
+    LOAD_WHOLE_BOARD = 2
 
     def to_byte(self):
         return self.value.to_bytes(1)[0]
@@ -62,6 +62,7 @@ class ConnectionManager:
         self.active_connections: list[WebSocket] = []
         self.active_boards: dict[WebSocket, Board] = {}
 
+    # if the game exists already, send player a previous state of the board
     async def connect(self, ws: WebSocket):
         await ws.accept()
         self.active_connections.append(ws)
@@ -76,13 +77,11 @@ class ConnectionManager:
     async def send_config(self, config: Config, ws: WebSocket):
         data = json.dumps(config.__dict__)
         data = bytearray(data, 'ascii')
-        await self.send(Request.CONFIG, data, ws)
-        # await ws.send_bytes(data)
+        await self.send(Request.CONFIGURE_GAME, data, ws)
 
     async def send_board(self, board: Board, ws: WebSocket):
         data = board.get_bytes()
-        await self.send(Request.BOARD, data, ws)
-        # await ws.send_bytes(data)
+        await self.send(Request.LOAD_WHOLE_BOARD, data, ws)
 
     async def broadcast(self, message: str):
         for connection in self.active_connections:
