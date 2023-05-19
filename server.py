@@ -42,18 +42,33 @@ class Request(Enum):
         return self.value.to_bytes(1)[0]
 
 
+class Move_Update():
+    request: Request
+    x: int
+    y: int
+
+    def __init__(self, x: bytes, y: bytes, request: Request):
+        self.request = request
+        self.x = x
+        self.y = y
+
+    def to_array(self):
+        return [
+            self.x.to_bytes(1)[0],
+            self.y.to_bytes(1)[0],
+            self.request.to_byte()
+        ]
+
+
 class Board:
     def __init__(self):
         self.data = [State.EMPTY] * (conf.map_dimensions * conf.map_dimensions)
-        self.data[0] = State.BLACK
-        self.data[9] = State.BLACK
-        self.data[18] = State.WHITE
 
-    def put(self, x: int, y: int, state: State):
+    def put(self, x: bytes, y: bytes, state: State):
         self.data[x + y * conf.map_dimensions] = state
 
     # converts an array of States(ints) into an array of single bytes
-    def get_bytes(self):
+    def to_array(self):
         return [i.to_byte() for i in self.data]
 
 
@@ -70,6 +85,15 @@ class ConnectionManager:
         board = Board()
         self.active_boards[ws] = board
         await self.send_board(board, ws)
+        while True:
+            data = await ws.receive_bytes()
+            opcode = data[0]
+            if (opcode == Request.UPDATE_BOARD.value):
+                print("RECEIVED PACKET", Request(opcode))
+                update = Move_Update(data[1], data[2], Request(opcode))
+                # self.active_boards[ws].put(data[1], data[2], State.BLACK)
+                # await self.send_board(self.active_boards[ws], ws)
+                await self.send_board_update(update, ws)
 
     def disconnect(self, ws: WebSocket):
         self.active_connections.remove(ws)
@@ -80,8 +104,12 @@ class ConnectionManager:
         await self.send(Request.CONFIGURE_GAME, data, ws)
 
     async def send_board(self, board: Board, ws: WebSocket):
-        data = board.get_bytes()
+        data = board.to_array()
         await self.send(Request.LOAD_WHOLE_BOARD, data, ws)
+
+    async def send_board_update(self, move: Move_Update, ws: WebSocket):
+        data = move.to_array()
+        await self.send(Request.UPDATE_BOARD, data, ws)
 
     async def broadcast(self, message: str):
         for connection in self.active_connections:
