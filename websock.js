@@ -1,6 +1,12 @@
 // Create a new WebSocket connection
 const socket = new WebSocket('ws://localhost:8000/ws');
 
+// Get the parameter value from the URL
+const urlParams = new URLSearchParams(window.location.search);
+let session_id = urlParams.get('session_id');
+console.log("Session id from parameter: ", session_id);
+document.cookie = `session_id=${session_id}; path=/`;
+
 const Value = {
     EMPTY : 0,
     WHITE : 1,
@@ -8,9 +14,12 @@ const Value = {
 }
 
 const Opcodes = {
-    CONFIGURE_GAME    : 0,
-    UPDATE_BOARD      : 1,
-    LOAD_WHOLE_BOARD  : 2
+    CONFIGURE_GAME      : 0,
+    UPDATE_BOARD        : 1,
+    LOAD_WHOLE_BOARD    : 2,
+    SEND_SESSION_ID     : 3,
+    RECV_SESSION_ID     : 4,
+    NEW_SESSION         : 5
 }
 
 const config = {
@@ -59,6 +68,17 @@ load_configuration = function(data) {
 
 // When the connection is open
 socket.onopen = function(_event) {
+    const session_cookie = document.cookie
+        .split(";")
+        .find((cookie) => cookie.trim().startsWith("session_id="))
+    if (session_cookie) {
+        const session_id_cookie = session_cookie.split("=")[1];
+        console.log("Session ID sent: ", session_id)
+        send(Opcodes.SEND_SESSION_ID, session_id);
+    } else {
+        send(Opcodes.NEW_SESSION, 0);
+    }
+
     console.log('WebSocket connection established.');
 };
 
@@ -98,6 +118,12 @@ handle_request = function(opcode, data) {
             console.log(`x: ${x}, y: ${y}, value: ${val}`);
 
             draw_board(board);
+            break;
+        case Opcodes.RECV_SESSION_ID:
+            console.log("Received Game session ID!");
+            const session_id = data[0];
+            document.cookie = `session_id=${session_id}`;
+            console.log("Cookie:", document.cookie);
             break;
     }
 }
