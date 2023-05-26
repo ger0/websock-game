@@ -17,14 +17,11 @@ class State(Enum):
         return self
 
 
-class Request(Enum):
-    CONFIGURE_GAME = 0
-    UPDATE_BOARD = 1
-    LOAD_WHOLE_BOARD = 2
-    RECV_SESSION_ID = 3
-    SEND_SESSION_ID = 4
-    NEW_SESSION = 5
-    GET_TOKEN = 6
+class Opcode(Enum):
+    SESSION = 0
+    CONFIG = 1
+    BOARD = 2
+    UPDATE = 3
 
     def to_byte(self):
         return self.value.to_bytes(1)[0]
@@ -52,5 +49,3 @@ class Config:
     map_dimensions = 8
     circle_colours = ['red', 'black']
     circle_size = 35
-    this_colour = State.EMPTY
-    token = ""

@@ -1,22 +1,30 @@
-// Create a new WebSocket connection
 var address = window.location.hostname + (window.location.port ? ":" + window.location.port : "");
-const socket = new WebSocket(`ws://${address}/ws`);
-
 // Get the parameter value from the URL
 const urlParams = new URLSearchParams(window.location.search);
-let session_id = urlParams.get('session_id');
-if (session_id == null) {
-    const session_cookie = document.cookie
-        .split(";")
-        .find((cookie) => cookie.trim().startsWith("session_id="))
-    if (session_cookie) {
-        const session_id = session_cookie.split("=")[1];
-        console.log("Session ID from cookie: ", session_id)
+
+let session = {
+    id              : urlParams.get('id'),
+    token           : localStorage.getItem('token')
+}
+if (session.id === null) {
+    const session_id = localStorage.getItem('session_id');
+    if (session_id != null) {
+        session.id = session_id;
+    } else {
+        session.id = -1
     }
 } else {
-    console.log("Session id from parameter: ", session_id);
-    document.cookie = `session_id=${session_id}`;
+    console.log("Session id from parameter: ", session.id);
 }
+
+if (session.token === null) {
+    session.token = -1
+} else {
+    console.log("Token from storage: ", session.token);
+}
+
+// Create a new WebSocket connection
+const socket = new WebSocket(`ws://${address}/ws`);
 
 const Value = {
     EMPTY : 0,
@@ -26,6 +34,15 @@ const Value = {
 
 let current_turn = Value.WHITE;
 
+var session_config = {
+    map_dimensions  : 19,
+    colours         : ['white', 'black'],
+    circle_size     : 40,
+    this_colour     : Value.WHITE,
+    token           : -1
+}
+
+
 next_turn = function(current) {
     if (current == Value.WHITE) { 
         return Value.BLACK; 
@@ -34,24 +51,11 @@ next_turn = function(current) {
     }
 }
 
-const Requests = {
-    UPDATE_BOARD        : 1,
-    SEND_SESSION_ID     : 3,
-    NEW_SESSION         : 5,
-    SEND_TOKEN          : 6
-}
-const Responses = {
-    CONFIGURE_GAME      : 0,
-    UPDATE_BOARD        : 1,
-    LOAD_BOARD    : 2,
-    SESSION_ID     : 4,
-}
-
-const config = {
-    map_dimensions  : 19,
-    colours         : ['white', 'black'],
-    circle_size     : 40,
-    this_colour     : Value.WHITE
+const Opcode = {
+    SESSION : 0,
+    CONFIG  : 1,
+    BOARD   : 2,
+    UPDATE  : 3
 }
 
 const canvas = document.getElementById('canvas');
@@ -63,56 +67,58 @@ canvas.addEventListener('click', (event) => {
     const clickY = event.clientY - rect.top;
 
     // Calculate the grid cell indices based on click coordinates
-    const x = Math.floor(clickX / config.circle_size);
-    const y = Math.floor(clickY / config.circle_size);
+    const x = Math.floor(clickX / session_config.circle_size);
+    const y = Math.floor(clickY / session_config.circle_size);
 
     // check if theres an object on the board already
-    if (board.at(x, y) != Value.EMPTY || config.this_colour != current_turn) {
+    if (board.at(x, y) != Value.EMPTY || session_config.this_colour != current_turn) {
         return;
     }
 
     // data to be sent
     const data = new Array(2);
     [data[0], data[1]] = [x, y];
-    send(Requests.UPDATE_BOARD, data);
+    send(Opcode.UPDATE, data);
 });
 
 send = function(opcode, array) {
-    const data = new Uint8Array([opcode].concat(array));
+    const data = new Uint8Array([opcode].concat(Array.from(array)));
     socket.send(data);
 }
 
 load_configuration = function(data) {
     const json = JSON.parse(String.fromCharCode(...data));
 
-    config.map_dimensions   = json.map_dimensions;
-    config.colours          = json.circle_colours;
-    config.circle_size      = json.circle_size;
-    config.this_colour      = json.this_colour;
+    session_config.map_dimensions  = json.map_dimensions;
+    session_config.colours         = json.circle_colours;
+    session_config.circle_size     = json.circle_size;
+    session_config.this_colour     = json.this_colour;
+    session.token                  = json.token;
+    session.id                     = json.id;
+    localStorage.setItem('token', session.token);
+    localStorage.setItem('session_id', session.id);
 
-    console.log("Map Dimensions: ", config.map_dimensions);
-    console.log("Circle Colours: ", config.colours);
-    console.log("Circle Size: ",    config.circle_size);
-    console.log("This colour: ",    config.this_colour);
+    console.log("This colour: ", session_config.this_colour);
+    console.log("Token: ", session.token);
+    console.log("Session ID: ", session.id);
 
-    canvas.width = config.map_dimensions * config.circle_size;
-    canvas.height = config.map_dimensions * config.circle_size;
+    canvas.width    = session_config.map_dimensions * session_config.circle_size;
+    canvas.height   = session_config.map_dimensions * session_config.circle_size;
 }
 
 // When the connection is open
 socket.onopen = function(_event) {
-    if (session_id == null) {
-        send(Requests.NEW_SESSION, 0);
-    } else {
-        send(Requests.SEND_SESSION_ID, session_id);
-    }
+    var session_str = JSON.stringify(session);
+    var encoder = new TextEncoder();
+    const binary_data = encoder.encode(session_str);
+    send(Opcode.SESSION, binary_data);
     console.log('WebSocket connection established.');
 };
 
 let board = {
-    _arr: new Uint8Array(config.map_dimensions * config.map_dimensions),
+    _arr: new Uint8Array(session_config.map_dimensions * session_config.map_dimensions),
     _iter: function(x, y) {
-        return x + config.map_dimensions * y;
+        return x + session_config.map_dimensions * y;
     },
     get: function() {
         return this._arr;
@@ -130,32 +136,24 @@ let board = {
 
 handle_request = function(opcode, data) {
     switch(opcode) {
-        case Responses.CONFIGURE_GAME:
+        case Opcode.SESSION:
             console.log("Received Game Config");
             load_configuration(data);
             break;
             
-        case Responses.LOAD_BOARD:
+        case Opcode.BOARD:
             console.log("Received Game State");
             board.load(data);
             draw_board(board);
             break;
 
-        case Responses.UPDATE_BOARD:
+        case Opcode.UPDATE:
             console.log("Received Game Update");
             const [x, y, val] = [data[0], data[1], data[2]];
             board.set(x, y, val);
             current_turn = next_turn(val);
             console.log(`x: ${x}, y: ${y}, value: ${val}`);
             draw_board(board);
-            break;
-
-        case Responses.SESSION_ID:
-            console.log("Received Game session ID!");
-            // const session_id = data[0];
-            const session_id = Array.from(data).reduce((acc, value) => (acc << 8) + value);
-            document.cookie = `session_id=${session_id}`;
-            console.log("New session_id from server:", session_id);
             break;
     }
 }
@@ -176,7 +174,7 @@ socket.onmessage = function(event) {
 
 draw_grid = function() {
     const ctx = canvas.getContext('2d');
-    const grid_radius = config.circle_size / 2
+    const grid_radius = session_config.circle_size / 2
 
     for (let x = grid_radius; x < canvas.width; x += grid_radius * 2) {
         ctx.moveTo(x, grid_radius);
@@ -196,9 +194,9 @@ draw_grid = function() {
 
 draw_board = function(board) {
     draw_grid();
-    const radius = config.circle_size / 2;
-    const dimensions = config.map_dimensions;
-    const colours = config.colours;
+    const radius = session_config.circle_size / 2;
+    const dimensions = session_config.map_dimensions;
+    const colours = session_config.colours;
     const spacing = 2;
 
     const array = board.get();

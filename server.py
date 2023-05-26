@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 import struct
 import json
 import secrets
-from utils import State, Move_Update, Request, Config
+from utils import State, Move_Update, Opcode, Config
 
 
 app = FastAPI()
@@ -22,6 +22,7 @@ def main():
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
+        print(f"websock: {websocket}")
         await manager.connect(websocket)
 
     @app.get("/", response_class=HTMLResponse)
@@ -46,36 +47,42 @@ class Board:
 
 
 class Session:
-    counter = 0
-    ws = {State.WHITE: None, State.BLACK: None}
-    board = None
-    turn = State.WHITE
-
-    def __init__(self):
+    def __init__(self, id: int):
+        self.counter = 0
         self.board = Board()
+        self.tokens = [None] * 2
+        self.turn = State.WHITE
+        self.ws = {State.WHITE: None, State.BLACK: None}
+        self.id = id
 
-    async def send_config(self, colour: State, ws: WebSocket, token=None):
+    async def send_session_config(self, session_info, ws: WebSocket):
         config = conf
-        if (token):
-            config.token = token
-            print(token)
-        config.this_colour = colour.value
+        config.this_colour = session_info['colour'].value
+        config.token = session_info['token']
+        config.id = session_info['id']
         data = json.dumps(config.__dict__)
         data = bytearray(data, 'ascii')
-        await self.send(Request.CONFIGURE_GAME, data, ws)
+        await self.send(Opcode.SESSION, data, ws)
 
-    async def connect(self, ws: WebSocket, token=None):
-        print(type(token))
-        if not token:
-            token = secrets.token_hex(16)
-        colour = None
+    async def connect(self, ws: WebSocket, session_info):
+        for i, token in enumerate(self.tokens):
+            if token is None or token == session_info['token']:
+                self.tokens[i] = session_info['token']
+                break
+            # else if theres no avaiable space for a new token
+            if token == self.tokens[-1]:
+                print("Failed to join session, token not found")
+                await ws.close()
+                return
+
         for i in self.ws:
             if self.ws[i] is None:
                 self.ws[i] = ws
-                colour = i
+                session_info['colour'] = i
                 self.counter += 1
                 break
-        await self.send_config(colour, ws, token=token)
+
+        await self.send_session_config(ws=ws, session_info=session_info)
         await self.send_board(ws)
 
     def disconnect(self, ws):
@@ -91,38 +98,34 @@ class Session:
 
     async def send_board(self, ws):
         data = self.board.to_array()
-        await self.send(Request.LOAD_WHOLE_BOARD, data, ws)
+        await self.send(Opcode.BOARD, data, ws)
 
     async def update_board(self, move: Move_Update, ws: WebSocket):
         colour = self.turn
-        print(f"Current turn: {self.turn}")
+        print(f"[{self.id}] - Current turn: {self.turn}")
         if self.counter != 2 or ws != self.ws[colour]:
-            print(f"[{ws}] Denied update! connections: {self.counter}, \
+            print(f"[{self.id}] Denied update! connections: {self.counter}, \
             sent: {ws}, expected: {self.ws[colour]}")
             return
 
         self.board.put(move, colour)
         move.state = colour
         data = move.to_array()
-        await self.broadcast(Request.UPDATE_BOARD, data)
+        await self.broadcast(Opcode.UPDATE, data)
         self.turn = self.turn.next_turn()
-        print(f"[{ws.url.port}] Updated! :{self.turn}")
+        # print(f"[{ws.url.port}] Updated! :{self.turn}")
 
-    async def send_session_id(self, session_id: int, ws: WebSocket):
-        data = session_id.to_bytes()
-        await self.send(Request.SEND_SESSION_ID, data, ws)
-
-    async def send(self, req: Request, bytes, ws: WebSocket):
+    async def send(self, req: Opcode, bytes, ws: WebSocket):
         data = [req.to_byte(), *bytes]
         data = struct.pack('!{}b'.format(len(data)), *data)
         await ws.send_bytes(data)
 
-    async def broadcast(self, req: Request, bytes):
+    async def broadcast(self, req: Opcode, bytes):
         for it in self.ws:
             if self.ws[it] is None:
                 continue
             await self.send(req, bytes, self.ws[it])
-            print(f"Sent to {self.ws[it]}")
+            # print(f"Sent to {self.ws[it]}")
 
 
 class ConnectionManager:
@@ -130,42 +133,44 @@ class ConnectionManager:
         self.sessions: dict[int, Session] = {}
         self.ws_to_session: dict[WebSocket, int] = {}
 
+    def add_session(self, ws: WebSocket, id=-1, session=None):
+        if id == -1:
+            if self.sessions:
+                keys = list(self.sessions.keys())
+                id = keys[-1] + 1
+            else:
+                id = 1
+            session = Session(id)
+            self.sessions[id] = session
+        elif id in self.sessions:
+            session = self.sessions[id]
+        else:
+            session = Session(id)
+            self.sessions[id] = session
+        self.ws_to_session[ws] = id
+        return (id, session)
+
     async def run(self, ws: WebSocket):
         session = None
-        token = None
         while True:
             data = await ws.receive_bytes()
-            request = Request(data[0])
+            request = Opcode(data[0])
             data = data[1:]
 
-            if (not session and request == Request.NEW_SESSION):
-                session = Session()
-                await session.connect(ws=ws, token=token)
-                if (self.sessions):
-                    keys = list(self.sessions.keys())
-                    print(keys)
-                    session_id = keys[-1] + 1
-                else:
-                    session_id = 1
-                self.sessions[session_id] = session
-                self.ws_to_session[ws] = session_id
-                await session.send_session_id(session_id, ws)
+            if (not session and request == Opcode.SESSION):
+                json_data = data.decode('utf-8')
+                vars = json.loads(json_data)
+                session_id = vars['id']
+                if vars['token'] == -1:
+                    vars['token'] = secrets.token_hex(16)
 
-            if (not session and request == Request.RECV_SESSION_ID):
-                session_id = int.from_bytes(data)
-                print(f"RECEIVED SESSIONID {session_id}")
-                if session_id not in self.sessions.keys():
-                    session = Session()
-                    self.sessions[session_id] = session
-                    self.ws_to_session[ws] = session_id
-                else:
-                    session = self.sessions[session_id]
-                    self.ws_to_session[ws] = session_id
-                await session.connect(ws=ws, token=token)
-                await session.send_board(ws)
+                (session_id, session) = self.add_session(ws=ws, id=session_id)
+                vars['id'] = session_id
+                print(f"[{session_id}] - NEW SESSION CREATED")
+                await session.connect(ws=ws, session_info=vars)
 
-            if (session and request == Request.UPDATE_BOARD):
-                print(f"RECEIVED {request}, session: {self.ws_to_session[ws]}")
+            if (session and request == Opcode.UPDATE):
+                print(f"[{session_id}] - RECEIVED {request}")
                 (x, y) = (data[0], data[1])
                 update = Move_Update(x, y)
                 await session.update_board(update, ws)
@@ -180,11 +185,11 @@ class ConnectionManager:
             self.disconnect(ws)
 
     def disconnect(self, ws: WebSocket):
-        session = self.ws_to_session.pop(ws)
-        con = self.sessions[session]
-        con.disconnect(ws)
-        if con.is_active() is False:
-            self.sessions.pop(session)
+        session_id = self.ws_to_session.pop(ws)
+        session = self.sessions[session_id]
+        session.disconnect(ws)
+        if session.is_active() is False:
+            self.sessions.pop(session_id)
         print(f"Disconnected {ws}")
 
 
