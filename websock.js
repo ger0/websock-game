@@ -1,5 +1,6 @@
 // Create a new WebSocket connection
-const socket = new WebSocket('ws://localhost:8000/ws');
+var address = window.location.hostname + (window.location.port ? ":" + window.location.port : "");
+const socket = new WebSocket(`ws://${address}/ws`);
 
 // Get the parameter value from the URL
 const urlParams = new URLSearchParams(window.location.search);
@@ -33,13 +34,17 @@ next_turn = function(current) {
     }
 }
 
-const Opcodes = {
+const Requests = {
+    UPDATE_BOARD        : 1,
+    SEND_SESSION_ID     : 3,
+    NEW_SESSION         : 5,
+    SEND_TOKEN          : 6
+}
+const Responses = {
     CONFIGURE_GAME      : 0,
     UPDATE_BOARD        : 1,
-    LOAD_WHOLE_BOARD    : 2,
-    SEND_SESSION_ID     : 3,
-    RECV_SESSION_ID     : 4,
-    NEW_SESSION         : 5
+    LOAD_BOARD    : 2,
+    SESSION_ID     : 4,
 }
 
 const config = {
@@ -69,7 +74,7 @@ canvas.addEventListener('click', (event) => {
     // data to be sent
     const data = new Array(2);
     [data[0], data[1]] = [x, y];
-    send(Opcodes.UPDATE_BOARD, data);
+    send(Requests.UPDATE_BOARD, data);
 });
 
 send = function(opcode, array) {
@@ -97,9 +102,9 @@ load_configuration = function(data) {
 // When the connection is open
 socket.onopen = function(_event) {
     if (session_id == null) {
-        send(Opcodes.NEW_SESSION, 0);
+        send(Requests.NEW_SESSION, 0);
     } else {
-        send(Opcodes.SEND_SESSION_ID, session_id);
+        send(Requests.SEND_SESSION_ID, session_id);
     }
     console.log('WebSocket connection established.');
 };
@@ -125,18 +130,18 @@ let board = {
 
 handle_request = function(opcode, data) {
     switch(opcode) {
-        case Opcodes.CONFIGURE_GAME:
+        case Responses.CONFIGURE_GAME:
             console.log("Received Game Config");
             load_configuration(data);
             break;
             
-        case Opcodes.LOAD_WHOLE_BOARD:
+        case Responses.LOAD_BOARD:
             console.log("Received Game State");
             board.load(data);
             draw_board(board);
             break;
 
-        case Opcodes.UPDATE_BOARD:
+        case Responses.UPDATE_BOARD:
             console.log("Received Game Update");
             const [x, y, val] = [data[0], data[1], data[2]];
             board.set(x, y, val);
@@ -145,7 +150,7 @@ handle_request = function(opcode, data) {
             draw_board(board);
             break;
 
-        case Opcodes.RECV_SESSION_ID:
+        case Responses.SESSION_ID:
             console.log("Received Game session ID!");
             // const session_id = data[0];
             const session_id = Array.from(data).reduce((acc, value) => (acc << 8) + value);

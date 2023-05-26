@@ -24,6 +24,7 @@ class Request(Enum):
     RECV_SESSION_ID = 3
     SEND_SESSION_ID = 4
     NEW_SESSION = 5
+    GET_TOKEN = 6
 
     def to_byte(self):
         return self.value.to_bytes(1)[0]
@@ -52,3 +53,4 @@ class Config:
     circle_colours = ['red', 'black']
     circle_size = 35
     this_colour = State.EMPTY
+    token = ""

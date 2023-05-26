@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import struct
 import json
+import secrets
 from utils import State, Move_Update, Request, Config
 
 
@@ -53,14 +54,20 @@ class Session:
     def __init__(self):
         self.board = Board()
 
-    async def send_config(self, colour: State, ws: WebSocket):
+    async def send_config(self, colour: State, ws: WebSocket, token=None):
         config = conf
+        if (token):
+            config.token = token
+            print(token)
         config.this_colour = colour.value
         data = json.dumps(config.__dict__)
         data = bytearray(data, 'ascii')
         await self.send(Request.CONFIGURE_GAME, data, ws)
 
-    async def connect(self, ws):
+    async def connect(self, ws: WebSocket, token=None):
+        print(type(token))
+        if not token:
+            token = secrets.token_hex(16)
         colour = None
         for i in self.ws:
             if self.ws[i] is None:
@@ -68,7 +75,7 @@ class Session:
                 colour = i
                 self.counter += 1
                 break
-        await self.send_config(colour, ws)
+        await self.send_config(colour, ws, token=token)
         await self.send_board(ws)
 
     def disconnect(self, ws):
@@ -90,12 +97,7 @@ class Session:
         colour = self.turn
         print(f"Current turn: {self.turn}")
         if self.counter != 2 or ws != self.ws[colour]:
-            curr = None
-            for i in self.ws:
-                if self.ws[i] == ws:
-                    curr = i
-            print(f"Colour: {curr}, Expected: {colour}")
-            print(f"Denied update! connections: {self.counter}, \
+            print(f"[{ws}] Denied update! connections: {self.counter}, \
             sent: {ws}, expected: {self.ws[colour]}")
             return
 
@@ -130,13 +132,15 @@ class ConnectionManager:
 
     async def run(self, ws: WebSocket):
         session = None
+        token = None
         while True:
             data = await ws.receive_bytes()
             request = Request(data[0])
             data = data[1:]
+
             if (not session and request == Request.NEW_SESSION):
                 session = Session()
-                await session.connect(ws)
+                await session.connect(ws=ws, token=token)
                 if (self.sessions):
                     keys = list(self.sessions.keys())
                     print(keys)
@@ -157,7 +161,7 @@ class ConnectionManager:
                 else:
                     session = self.sessions[session_id]
                     self.ws_to_session[ws] = session_id
-                await session.connect(ws)
+                await session.connect(ws=ws, token=token)
                 await session.send_board(ws)
 
             if (session and request == Request.UPDATE_BOARD):
