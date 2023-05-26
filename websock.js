@@ -4,13 +4,33 @@ const socket = new WebSocket('ws://localhost:8000/ws');
 // Get the parameter value from the URL
 const urlParams = new URLSearchParams(window.location.search);
 let session_id = urlParams.get('session_id');
-console.log("Session id from parameter: ", session_id);
-document.cookie = `session_id=${session_id}; path=/`;
+if (session_id == null) {
+    const session_cookie = document.cookie
+        .split(";")
+        .find((cookie) => cookie.trim().startsWith("session_id="))
+    if (session_cookie) {
+        const session_id = session_cookie.split("=")[1];
+        console.log("Session ID from cookie: ", session_id)
+    }
+} else {
+    console.log("Session id from parameter: ", session_id);
+    document.cookie = `session_id=${session_id}`;
+}
 
 const Value = {
     EMPTY : 0,
     WHITE : 1,
     BLACK : 2
+}
+
+let current_turn = Value.WHITE;
+
+next_turn = function(current) {
+    if (current == Value.WHITE) { 
+        return Value.BLACK; 
+    } else if (current == Value.BLACK) { 
+        return Value.WHITE; 
+    }
 }
 
 const Opcodes = {
@@ -23,14 +43,15 @@ const Opcodes = {
 }
 
 const config = {
-    map_dimensions : 19,
-    colours : ['white', 'black'],
-    circle_size : 40
+    map_dimensions  : 19,
+    colours         : ['white', 'black'],
+    circle_size     : 40,
+    this_colour     : Value.WHITE
 }
 
 const canvas = document.getElementById('canvas');
 
-// Mouse click event listener
+// Try to send an update
 canvas.addEventListener('click', (event) => {
     const rect = canvas.getBoundingClientRect();
     const clickX = event.clientX - rect.left;
@@ -39,6 +60,11 @@ canvas.addEventListener('click', (event) => {
     // Calculate the grid cell indices based on click coordinates
     const x = Math.floor(clickX / config.circle_size);
     const y = Math.floor(clickY / config.circle_size);
+
+    // check if theres an object on the board already
+    if (board.at(x, y) != Value.EMPTY || config.this_colour != current_turn) {
+        return;
+    }
 
     // data to be sent
     const data = new Array(2);
@@ -54,13 +80,15 @@ send = function(opcode, array) {
 load_configuration = function(data) {
     const json = JSON.parse(String.fromCharCode(...data));
 
-    config.map_dimensions  = json.map_dimensions;
-    config.colours         = json.circle_colours;
-    config.circle_size     = json.circle_size;
+    config.map_dimensions   = json.map_dimensions;
+    config.colours          = json.circle_colours;
+    config.circle_size      = json.circle_size;
+    config.this_colour      = json.this_colour;
 
     console.log("Map Dimensions: ", config.map_dimensions);
     console.log("Circle Colours: ", config.colours);
     console.log("Circle Size: ",    config.circle_size);
+    console.log("This colour: ",    config.this_colour);
 
     canvas.width = config.map_dimensions * config.circle_size;
     canvas.height = config.map_dimensions * config.circle_size;
@@ -68,17 +96,11 @@ load_configuration = function(data) {
 
 // When the connection is open
 socket.onopen = function(_event) {
-    const session_cookie = document.cookie
-        .split(";")
-        .find((cookie) => cookie.trim().startsWith("session_id="))
-    if (session_cookie) {
-        const session_id_cookie = session_cookie.split("=")[1];
-        console.log("Session ID sent: ", session_id)
-        send(Opcodes.SEND_SESSION_ID, session_id);
-    } else {
+    if (session_id == null) {
         send(Opcodes.NEW_SESSION, 0);
+    } else {
+        send(Opcodes.SEND_SESSION_ID, session_id);
     }
-
     console.log('WebSocket connection established.');
 };
 
@@ -92,6 +114,9 @@ let board = {
     },
     set: function(x, y, value) {
         this._arr[this._iter(x, y)] = value;
+    },
+    at: function(x, y) {
+        return this._arr[this._iter(x, y)];
     },
     load: function(data) {
         this._arr = data;
@@ -115,15 +140,17 @@ handle_request = function(opcode, data) {
             console.log("Received Game Update");
             const [x, y, val] = [data[0], data[1], data[2]];
             board.set(x, y, val);
+            current_turn = next_turn(val);
             console.log(`x: ${x}, y: ${y}, value: ${val}`);
-
             draw_board(board);
             break;
+
         case Opcodes.RECV_SESSION_ID:
             console.log("Received Game session ID!");
-            const session_id = data[0];
+            // const session_id = data[0];
+            const session_id = Array.from(data).reduce((acc, value) => (acc << 8) + value);
             document.cookie = `session_id=${session_id}`;
-            console.log("Cookie:", document.cookie);
+            console.log("New session_id from server:", session_id);
             break;
     }
 }

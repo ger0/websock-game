@@ -1,17 +1,11 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from enum import Enum
 import struct
 import json
-
-
-# default values
-class Config:
-    map_dimensions = 8
-    circle_colours = ['red', 'black']
-    circle_size = 35
+from utils import State, Move_Update, Request, Config
 
 
 app = FastAPI()
+global conf
 
 
 # entry point
@@ -22,51 +16,6 @@ def main():
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
         await manager.connect(websocket)
-
-
-class State(Enum):
-    EMPTY = 0
-    BLACK = 1
-    WHITE = 2
-
-    def to_byte(self):
-        return self.value.to_bytes(1)[0]
-
-    def next_turn(self):
-        if self == State.BLACK:
-            self = State.WHITE
-        elif self == State.WHITE:
-            self = State.BLACK
-        return self
-
-
-class Request(Enum):
-    CONFIGURE_GAME = 0
-    UPDATE_BOARD = 1
-    LOAD_WHOLE_BOARD = 2
-    RECV_SESSION_ID = 3
-    SEND_SESSION_ID = 4
-    NEW_SESSION = 5
-
-    def to_byte(self):
-        return self.value.to_bytes(1)[0]
-
-
-class Move_Update():
-    state: State
-    x: int
-    y: int
-
-    def __init__(self, x: bytes, y: bytes):
-        self.x = x
-        self.y = y
-
-    def to_array(self):
-        return [
-            self.x.to_bytes(1)[0],
-            self.y.to_bytes(1)[0],
-            self.state.to_byte()
-        ]
 
 
 class Board:
@@ -90,20 +39,22 @@ class Connection:
     def __init__(self):
         self.board = Board()
 
-    async def send_config(self, ws):
-        global conf
-        data = json.dumps(conf.__dict__)
+    async def send_config(self, colour: State, ws: WebSocket):
+        config = conf
+        config.this_colour = colour.value
+        data = json.dumps(config.__dict__)
         data = bytearray(data, 'ascii')
         await self.send(Request.CONFIGURE_GAME, data, ws)
 
     async def connect(self, ws):
-        # self.ws = [ws if i is None else i for i in self.ws]
+        colour = None
         for i in self.ws:
             if self.ws[i] is None:
                 self.ws[i] = ws
+                colour = i
                 break
         self.counter += 1
-        await self.send_config(ws)
+        await self.send_config(colour, ws)
         await self.send_board(ws)
 
     def disconnect(self, ws):
@@ -137,6 +88,7 @@ class Connection:
         data = move.to_array()
         await self.broadcast(Request.UPDATE_BOARD, data)
         self.turn = self.turn.next_turn()
+        print(self.turn)
 
     async def send_session_id(self, session_id: int, ws: WebSocket):
         data = session_id.to_bytes()
