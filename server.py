@@ -35,11 +35,48 @@ def main():
 
 
 class Board:
+    groups = {State.WHITE: [], State.BLACK: []}
+
     def __init__(self):
         self.data = [State.EMPTY] * (conf.map_dimensions * conf.map_dimensions)
 
+    def iter(self, x: int, y: int):
+        if not (0 <= x < conf.map_dimensions and 0 <= y < conf.map_dimensions):
+            return None
+        return x + y * (conf.map_dimensions)
+
+    # returns a dictionary containing position entries for two colour types
+    def neighbours(self, x: int, y: int):
+        neighbours = {State.WHITE: [], State.BLACK: [], State.EMPTY: []}
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        for dx, dy in directions:
+            (nx, ny) = (x + dx, y + dy)
+            idx = self.iter(nx, ny)
+            if (idx is None):
+                continue
+            state = self.data[idx]
+            print(state)
+            neighbours[state].append((nx, ny))
+        return neighbours
+
     def put(self, m: Move_Update, state: State):
-        self.data[m.x + m.y * conf.map_dimensions] = state
+        neighbours = self.neighbours(m.x, m.y)
+        # find groups to which the neighbours belong to and try to join them
+        merge_idxs = []
+        merge_group = []
+        print(f"entered pos: {m.x, m.y}")
+        for pos in neighbours[state]:
+            for i, _ in enumerate(self.groups[state]):
+                if pos in self.groups[state][i]:
+                    merge_idxs.append(i)
+                    merge_group.extend(self.groups[state][i])
+                    print(f"POS: {pos} FOUND IN GROUP {i} consisting of: {self.groups[state][i]}!")
+        for idx in merge_idxs:
+            self.groups[state].pop(idx)
+        merge_group.append((m.x, m.y))
+        self.groups[state].append(merge_group)
+
+        self.data[self.iter(m.x, m.y)] = state
 
     # converts an array of States(ints) into an array of single bytes
     def to_array(self):
