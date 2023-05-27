@@ -1,9 +1,9 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 import struct
 import json
 import secrets
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from utils import State, Move_Update, Opcode, Config
 
 
@@ -46,7 +46,7 @@ class Board:
         return x + y * (conf.map_dimensions)
 
     # returns a dictionary containing position entries for two colour types
-    def neighbours(self, x: int, y: int):
+    def get_neighbours(self, x: int, y: int):
         neighbours = {State.WHITE: [], State.BLACK: [], State.EMPTY: []}
         directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
         for dx, dy in directions:
@@ -55,26 +55,31 @@ class Board:
             if (idx is None):
                 continue
             state = self.data[idx]
-            print(state)
             neighbours[state].append((nx, ny))
         return neighbours
 
-    def put(self, m: Move_Update, state: State):
-        neighbours = self.neighbours(m.x, m.y)
+    def merge_groups(self, new_pos: (int, int), neighbours, groups):
         # find groups to which the neighbours belong to and try to join them
         merge_idxs = []
-        merge_group = []
-        print(f"entered pos: {m.x, m.y}")
-        for pos in neighbours[state]:
-            for i, _ in enumerate(self.groups[state]):
-                if pos in self.groups[state][i]:
+        # we don't want any duplicates in our list of positions
+        merge_group = set()
+        for pos in neighbours:
+            for i, _ in enumerate(groups):
+                if pos in groups[i]:
                     merge_idxs.append(i)
-                    merge_group.extend(self.groups[state][i])
-                    print(f"POS: {pos} FOUND IN GROUP {i} consisting of: {self.groups[state][i]}!")
+                    merge_group.update(groups[i])
         for idx in merge_idxs:
-            self.groups[state].pop(idx)
-        merge_group.append((m.x, m.y))
-        self.groups[state].append(merge_group)
+            groups = [groups[i] for i, _ in enumerate(groups) if i not in merge_idxs]
+
+        print(f"Pos: {new_pos} inserted in a group of: {merge_group}!")
+        merge_group.add(new_pos)
+        groups.append(merge_group)
+        return groups
+
+    def put(self, m: Move_Update, state: State):
+        neighbours = self.get_neighbours(m.x, m.y)
+        groups = self.merge_groups((m.x, m.y), neighbours[state], self.groups[state])
+        self.groups[state] = groups
 
         self.data[self.iter(m.x, m.y)] = state
 
