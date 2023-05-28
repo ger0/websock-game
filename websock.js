@@ -55,7 +55,8 @@ const Opcode = {
     SESSION : 0,
     CONFIG  : 1,
     BOARD   : 2,
-    UPDATE  : 3
+    UPDATE  : 3,
+    REMOVE  : 4
 }
 
 const canvas = document.getElementById('canvas');
@@ -150,12 +151,38 @@ handle_request = function(opcode, data) {
         case Opcode.UPDATE:
             console.log("Received Game Update");
             const [x, y, val] = [data[0], data[1], data[2]];
+            // todo replace with iterator
             board.set(x, y, val);
             current_turn = next_turn(val);
             console.log(`x: ${x}, y: ${y}, value: ${val}`);
             draw_board(board);
             break;
+
+        case Opcode.REMOVE:
+            console.log("Received Stone Removal");
+            remove_from_board(data, board);
+            draw_board(board);
+            break;
     }
+}
+
+remove_from_board = function(data, board) {
+    // Create an ArrayBuffer from the received byte data
+    const arrayBuffer = data.buffer;
+
+    // Create a DataView to handle the binary data
+    const dataView = new DataView(arrayBuffer);
+
+    // Read the unsigned integers from the DataView
+    const integerArray = [];
+    for (let i = 0; i < arrayBuffer.byteLength; i += 4) {
+        const idx = dataView.getUint32(i);  // true for little-endian
+        integerArray.push(idx);
+        board._arr[idx] = Value.EMPTY;
+    }
+
+    // Use the integerArray as needed
+    console.log(integerArray);
 }
 
 // When a message is received
@@ -175,6 +202,8 @@ socket.onmessage = function(event) {
 draw_grid = function() {
     const ctx = canvas.getContext('2d');
     const grid_radius = session_config.circle_size / 2
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     for (let x = grid_radius; x < canvas.width; x += grid_radius * 2) {
         ctx.moveTo(x, grid_radius);

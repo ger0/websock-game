@@ -22,7 +22,6 @@ def main():
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
-        print(f"websock: {websocket}")
         await manager.connect(websocket)
 
     @app.get("/", response_class=HTMLResponse)
@@ -58,12 +57,14 @@ class Board:
             neighbours[state].append((nx, ny))
         return neighbours
 
-    def merge_groups(self, new_pos: (int, int), neighbours, groups):
-        # find groups to which the neighbours belong to and try to join them
+    def merge_groups(self, new_pos: (int, int), state: State):
+        neighbours = self.get_neighbours(new_pos[0], new_pos[1])
+        groups = self.groups[state]
         merge_idxs = []
-        # we don't want any duplicates in our list of positions
+        # find groups to which the neighbours belong to and try to join them
+        # we don't want any duplicates in our set of positions
         merge_group = set()
-        for pos in neighbours:
+        for pos in neighbours[state]:
             for i, _ in enumerate(groups):
                 if pos in groups[i]:
                     merge_idxs.append(i)
@@ -71,17 +72,41 @@ class Board:
         for idx in merge_idxs:
             groups = [groups[i] for i, _ in enumerate(groups) if i not in merge_idxs]
 
-        print(f"Pos: {new_pos} inserted in a group of: {merge_group}!")
+        # print(f"Pos: {new_pos} inserted in a group of: {merge_group}!")
         merge_group.add(new_pos)
         groups.append(merge_group)
-        return groups
-
-    def put(self, m: Move_Update, state: State):
-        neighbours = self.get_neighbours(m.x, m.y)
-        groups = self.merge_groups((m.x, m.y), neighbours[state], self.groups[state])
         self.groups[state] = groups
 
-        self.data[self.iter(m.x, m.y)] = state
+    def remove_group(self, idxs: int, state: State):
+        removed_iters = []
+        for idx in idxs:
+            poses = self.groups[state].pop(idx)
+            for pos in poses:
+                iter = self.iter(pos[0], pos[1])
+                self.data[iter] = State.EMPTY
+                removed_iters.append(iter)
+        return removed_iters if len(removed_iters) > 0 else None
+
+    # checks if any of the groups of the enemys colour lack an empty space
+    def check_encircled(self, state: State):
+        # enemys colour
+        colour = state.next_turn()
+        removed_idxs = []
+        for i, group in enumerate(self.groups[colour]):
+            empty_spaces = 0
+            for pos in group:
+                neighbours = self.get_neighbours(pos[0], pos[1])
+                empty_spaces += len(neighbours[State.EMPTY])
+                # print(f"empty space for {pos}, {neighbours[State.EMPTY]}")
+            # print(f"{group}, {empty_spaces}")
+            if empty_spaces == 0:
+                # print(f"ENCIRCLED GROUP {i}{group}")
+                removed_idxs.append(i)
+        return self.remove_group(removed_idxs, colour)
+
+    def put(self, m: Move_Update):
+        self.merge_groups((m.x, m.y), m.state)
+        self.data[self.iter(m.x, m.y)] = m.state
 
     # converts an array of States(ints) into an array of single bytes
     def to_array(self):
@@ -146,16 +171,23 @@ class Session:
         colour = self.turn
         print(f"[{self.id}] - Current turn: {self.turn}")
         if self.counter != 2 or ws != self.ws[colour]:
-            print(f"[{self.id}] Denied update! connections: {self.counter}, \
+            print(f"[{self.id}] - Denied update! connections: {self.counter}, \
             sent: {ws}, expected: {self.ws[colour]}")
             return
 
-        self.board.put(move, colour)
         move.state = colour
+        self.board.put(move)
         data = move.to_array()
+        print(f"[{self.id}] - Updated: {self.turn} at {(move.x, move.y)}")
         await self.broadcast(Opcode.UPDATE, data)
+
+        encircled_iters = self.board.check_encircled(colour)
+        if encircled_iters is not None:
+            data = struct.pack(f'!{len(encircled_iters)}I'
+                               .format(len(encircled_iters)), *encircled_iters)
+            print(f"[{self.id}] - Detected removal: {self.turn}")
+            await self.broadcast(Opcode.REMOVE, data)
         self.turn = self.turn.next_turn()
-        # print(f"[{ws.url.port}] Updated! :{self.turn}")
 
     async def send(self, req: Opcode, bytes, ws: WebSocket):
         data = [req.to_byte(), *bytes]
@@ -167,7 +199,6 @@ class Session:
             if self.ws[it] is None:
                 continue
             await self.send(req, bytes, self.ws[it])
-            # print(f"Sent to {self.ws[it]}")
 
 
 class ConnectionManager:
@@ -232,7 +263,7 @@ class ConnectionManager:
         session.disconnect(ws)
         if session.is_active() is False:
             self.sessions.pop(session_id)
-        print(f"Disconnected {ws}")
+        print(f"{session_id} Disconnected {ws}")
 
 
 def load_config(filename):

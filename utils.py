@@ -22,6 +22,7 @@ class Opcode(Enum):
     CONFIG = 1
     BOARD = 2
     UPDATE = 3
+    REMOVE = 4
 
     def to_byte(self):
         return self.value.to_bytes(1)[0]
