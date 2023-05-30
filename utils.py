@@ -22,7 +22,6 @@ class Opcode(Enum):
     CONFIG = 1
     BOARD = 2
     UPDATE = 3
-    REMOVE = 4
 
     def to_byte(self):
         return self.value.to_bytes(1)[0]
@@ -32,17 +31,27 @@ class Move_Update():
     state: State
     x: int
     y: int
+    removed_poses: [(int, int)]
 
     def __init__(self, x: bytes, y: bytes):
         self.x = x
         self.y = y
 
-    def to_array(self):
-        return [
+    def to_bytes(self):
+        head = [
+            self.state.to_byte(),
             self.x.to_bytes(1)[0],
             self.y.to_bytes(1)[0],
-            self.state.to_byte()
         ]
+        if self.removed_poses is None:
+            return head
+
+        removed = [
+                coord.to_bytes(1)[0]
+                for pos in self.removed_poses
+                for coord in pos
+            ]
+        return head + removed
 
 
 # default values

@@ -55,8 +55,7 @@ const Opcode = {
     SESSION : 0,
     CONFIG  : 1,
     BOARD   : 2,
-    UPDATE  : 3,
-    REMOVE  : 4
+    UPDATE  : 3
 }
 
 const canvas = document.getElementById('canvas');
@@ -150,39 +149,23 @@ handle_request = function(opcode, data) {
 
         case Opcode.UPDATE:
             console.log("Received Game Update");
-            const [x, y, val] = [data[0], data[1], data[2]];
-            // todo replace with iterator
+            let [val, x, y] = [data[0], data[1], data[2]];
+            let index = 0;
             board.set(x, y, val);
-            current_turn = next_turn(val);
             console.log(`x: ${x}, y: ${y}, value: ${val}`);
-            draw_board(board);
-            break;
-
-        case Opcode.REMOVE:
-            console.log("Received Stone Removal");
-            remove_from_board(data, board);
+            
+            // remove stones
+            index += 3;
+            while (index < data.length) {
+                [x, y] = [data[index], data[index + 1]];
+                board.set(x, y, Value.EMPTY);
+                index += 2;
+                console.log(`x: ${x}, y: ${y}, erased`);
+            }
+            current_turn = next_turn(val);
             draw_board(board);
             break;
     }
-}
-
-remove_from_board = function(data, board) {
-    // Create an ArrayBuffer from the received byte data
-    const arrayBuffer = data.buffer;
-
-    // Create a DataView to handle the binary data
-    const dataView = new DataView(arrayBuffer);
-
-    // Read the unsigned integers from the DataView
-    const integerArray = [];
-    for (let i = 0; i < arrayBuffer.byteLength; i += 4) {
-        const idx = dataView.getUint32(i);  // true for little-endian
-        integerArray.push(idx);
-        board._arr[idx] = Value.EMPTY;
-    }
-
-    // Use the integerArray as needed
-    console.log(integerArray);
 }
 
 // When a message is received
@@ -254,8 +237,3 @@ draw_board = function(board) {
 socket.onclose = function(_event) {
     console.log('WebSocket connection closed.');
 };
-
-// entry point????
-{
-    // 
-}

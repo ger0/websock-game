@@ -77,21 +77,22 @@ class Board:
         groups.append(merge_group)
         self.groups[state] = groups
 
-    def remove_group(self, idxs: int, state: State):
-        removed_iters = []
-        for idx in idxs:
+    def remove_group(self, group_idcs: int, state: State):
+        removed_poses = []
+        for idx in group_idcs:
             poses = self.groups[state].pop(idx)
             for pos in poses:
                 iter = self.iter(pos[0], pos[1])
+
                 self.data[iter] = State.EMPTY
-                removed_iters.append(iter)
-        return removed_iters if len(removed_iters) > 0 else None
+                removed_poses.append(pos)
+        return removed_poses if len(removed_poses) > 0 else None
 
     # checks if any of the groups of the enemys colour lack an empty space
-    def check_encircled(self, state: State):
+    def get_encircled_positions(self, state: State):
         # enemys colour
         colour = state.next_turn()
-        removed_idxs = []
+        removed_groups = []
         for i, group in enumerate(self.groups[colour]):
             empty_spaces = 0
             for pos in group:
@@ -101,8 +102,9 @@ class Board:
             # print(f"{group}, {empty_spaces}")
             if empty_spaces == 0:
                 # print(f"ENCIRCLED GROUP {i}{group}")
-                removed_idxs.append(i)
-        return self.remove_group(removed_idxs, colour)
+                removed_groups.append(i)
+        # returns all removed positions
+        return self.remove_group(removed_groups, colour)
 
     def put(self, m: Move_Update):
         self.merge_groups((m.x, m.y), m.state)
@@ -177,16 +179,11 @@ class Session:
 
         move.state = colour
         self.board.put(move)
-        data = move.to_array()
-        print(f"[{self.id}] - Updated: {self.turn} at {(move.x, move.y)}")
-        await self.broadcast(Opcode.UPDATE, data)
+        removed_poses = self.board.get_encircled_positions(colour)
+        move.removed_poses = removed_poses
 
-        encircled_iters = self.board.check_encircled(colour)
-        if encircled_iters is not None:
-            data = struct.pack(f'!{len(encircled_iters)}I'
-                               .format(len(encircled_iters)), *encircled_iters)
-            print(f"[{self.id}] - Detected removal: {self.turn}")
-            await self.broadcast(Opcode.REMOVE, data)
+        print(f"[{self.id}] - Updated: {self.turn} at {(move.x, move.y)}")
+        await self.broadcast(Opcode.UPDATE, move.to_bytes())
         self.turn = self.turn.next_turn()
 
     async def send(self, req: Opcode, bytes, ws: WebSocket):
