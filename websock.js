@@ -11,14 +11,14 @@ if (session.id === null) {
     if (session_id != null) {
         session.id = session_id;
     } else {
-        session.id = -1
+        session.id = null
     }
 } else {
     console.log("Session id from parameter: ", session.id);
 }
 
 if (session.token === null) {
-    session.token = -1
+    session.token = null
 } else {
     console.log("Token from storage: ", session.token);
 }
@@ -39,7 +39,7 @@ var session_config = {
     colours         : ['white', 'black'],
     circle_size     : 40,
     this_colour     : Value.WHITE,
-    token           : -1
+    token           : null
 }
 
 

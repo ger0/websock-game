@@ -35,6 +35,7 @@ def main():
 
 class Board:
     groups = {State.WHITE: [], State.BLACK: []}
+    score = {State.WHITE: 0, State.BLACK: 0}
 
     def __init__(self):
         self.data = [State.EMPTY] * (conf.map_dimensions * conf.map_dimensions)
@@ -86,6 +87,7 @@ class Board:
 
                 self.data[iter] = State.EMPTY
                 removed_poses.append(pos)
+        self.score[state.next_turn()] += len(removed_poses)
         return removed_poses if len(removed_poses) > 0 else None
 
     # checks if any of the groups of the enemys colour lack an empty space
@@ -203,8 +205,9 @@ class ConnectionManager:
         self.sessions: dict[int, Session] = {}
         self.ws_to_session: dict[WebSocket, int] = {}
 
-    def add_session(self, ws: WebSocket, id=-1, session=None):
-        if id == -1:
+    def add_session(self, ws: WebSocket, id=None, session=None):
+        # add a way to join a game with 1 player
+        if id is None:
             if self.sessions:
                 keys = list(self.sessions.keys())
                 id = keys[-1] + 1
@@ -231,7 +234,7 @@ class ConnectionManager:
                 json_data = data.decode('utf-8')
                 vars = json.loads(json_data)
                 session_id = vars['id']
-                if vars['token'] == -1:
+                if vars['token'] is None:
                     vars['token'] = secrets.token_hex(16)
 
                 (session_id, session) = self.add_session(ws=ws, id=session_id)
@@ -260,7 +263,7 @@ class ConnectionManager:
         session.disconnect(ws)
         if session.is_active() is False:
             self.sessions.pop(session_id)
-        print(f"{session_id} Disconnected {ws}")
+        print(f"[{session_id}] - Disconnected {ws}")
 
 
 def load_config(filename):
