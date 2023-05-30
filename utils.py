@@ -36,6 +36,7 @@ class Move_Update():
     def __init__(self, x: bytes, y: bytes):
         self.x = x
         self.y = y
+        self.removed_poses = None
 
     def to_bytes(self):
         head = [

@@ -179,6 +179,14 @@ class Session:
             sent: {ws}, expected: {self.ws[colour]}")
             return
 
+        print(f"[{self.id}] - {move.x}, {move.y}")
+        if move.x == conf.map_dimensions or move.y == conf.map_dimensions:
+            print(f"[{self.id}] - Passed the move")
+            self.turn = self.turn.next_turn()
+            move.state = State.EMPTY
+            await self.broadcast(Opcode.UPDATE, move.to_bytes())
+            return
+
         move.state = colour
         self.board.put(move)
         removed_poses = self.board.get_encircled_positions(colour)

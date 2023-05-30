@@ -1,22 +1,53 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <title>WebSocket Example</title>
-    <style>
-        canvas {
-            margin-left: 80px;
-            margin-top: 40px;
-            margin-right: 80px;
-            margin-bottom: 40px;
-            background-color: rgb(210,175,120);
+    <head>
+        <title>GO-like game in websockets!</title>
+        <style>
+        .container {
+            text-align: center;
         }
-        body {
+        .board {
             background-color: rgb(245,245,255);
         }
-    </style>
-</head>
-<body>
-    <canvas id="canvas"/>
-    <script src='static/websock.js'></script>
-</body>
+        canvas {
+            background-color: rgb(210,175,120);
+        }
+        .info {
+            margin-top: 20px;
+        }
+        .turn {
+            font-weight: bold;
+        }
+        .points {
+            margin-top: 10px;
+        }
+        button {
+            margin-top: 20px;
+        }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Go Game</h1>
+            <div class="board">
+                <canvas id="canvas"/>
+                <script src='static/websock.js'></script>
+            </div>
+            <div class="info">
+                <div class="turn">
+                    <span>Player's Turn:</span>
+                    <span id="turnIndicator">Player 1</span>
+                </div>
+                <div class="points">
+                    <span>White Player's Points:</span>
+                    <span id="white_points">0</span>
+                </div>
+                <div class="points">
+                    <span>Black Player's Points:</span>
+                    <span id="black_points">0</span>
+                </div>
+            </div>
+            <button id="passButton">Pass</button>
+        </div>
+    </body>
 </html>

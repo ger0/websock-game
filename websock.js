@@ -6,6 +6,7 @@ let session = {
     id              : urlParams.get('id'),
     token           : localStorage.getItem('token')
 }
+
 if (session.id === null) {
     const session_id = localStorage.getItem('session_id');
     if (session_id != null) {
@@ -30,6 +31,11 @@ const Value = {
     EMPTY : 0,
     WHITE : 1,
     BLACK : 2
+}
+
+let player_scores = {
+    WHITE: 0,
+    BLACK: 0
 }
 
 let current_turn = Value.WHITE;
@@ -58,27 +64,41 @@ const Opcode = {
     UPDATE  : 3
 }
 
-const canvas = document.getElementById('canvas');
+document.addEventListener('DOMContentLoaded', function() {
+    const canvas = document.getElementById('canvas');
 
-// Try to send an update
-canvas.addEventListener('click', (event) => {
-    const rect = canvas.getBoundingClientRect();
-    const clickX = event.clientX - rect.left;
-    const clickY = event.clientY - rect.top;
+    // Try to send an update
+    canvas.addEventListener('click', (event) => {
+        const rect = canvas.getBoundingClientRect();
+        const clickX = event.clientX - rect.left;
+        const clickY = event.clientY - rect.top;
 
-    // Calculate the grid cell indices based on click coordinates
-    const x = Math.floor(clickX / session_config.circle_size);
-    const y = Math.floor(clickY / session_config.circle_size);
+        // Calculate the grid cell indices based on click coordinates
+        const x = Math.floor(clickX / session_config.circle_size);
+        const y = Math.floor(clickY / session_config.circle_size);
 
-    // check if theres an object on the board already
-    if (board.at(x, y) != Value.EMPTY || session_config.this_colour != current_turn) {
-        return;
-    }
+        // check if theres an object on the board already
+        if (board.at(x, y) != Value.EMPTY || session_config.this_colour != current_turn) {
+            return;
+        }
 
-    // data to be sent
-    const data = new Array(2);
-    [data[0], data[1]] = [x, y];
-    send(Opcode.UPDATE, data);
+        // data to be sent
+        const data = new Array(2);
+        [data[0], data[1]] = [x, y];
+        send(Opcode.UPDATE, data);
+    });
+
+    const pass_button = document.getElementById('passButton');
+
+    pass_button.addEventListener('click', function() {
+        const data = new Array(2);
+        [data[0], data[1]] = [
+            session_config.map_dimensions, 
+            session_config.map_dimensions
+        ];
+        console.log(data[0], data[1]);
+        send(Opcode.UPDATE, data);
+    });
 });
 
 send = function(opcode, array) {
@@ -150,17 +170,29 @@ handle_request = function(opcode, data) {
         case Opcode.UPDATE:
             console.log("Received Game Update");
             let [val, x, y] = [data[0], data[1], data[2]];
+            if (val == Value.EMPTY) {
+                current_turn = next_turn(current_turn);
+                draw_board(board);
+                break;
+            }
             let index = 0;
             board.set(x, y, val);
             console.log(`x: ${x}, y: ${y}, value: ${val}`);
             
             // remove stones
+            let add_score = 0;
             index += 3;
             while (index < data.length) {
                 [x, y] = [data[index], data[index + 1]];
                 board.set(x, y, Value.EMPTY);
                 index += 2;
+                add_score += 1;
                 console.log(`x: ${x}, y: ${y}, erased`);
+            }
+            if (val == Value.WHITE) {
+                player_scores.WHITE += add_score;
+            } else if (val == Value.BLACK) {
+                player_scores.BLACK += add_score;
             }
             current_turn = next_turn(val);
             draw_board(board);
@@ -210,6 +242,13 @@ draw_board = function(board) {
     const dimensions = session_config.map_dimensions;
     const colours = session_config.colours;
     const spacing = 2;
+    const turn_text = document.getElementById('turnIndicator');
+    turn_text.textContent = current_turn == Value.WHITE ? "WHITE" : "BLACK";
+
+    const white_points = document.getElementById('white_points');
+    const black_points = document.getElementById('black_points');
+    white_points.textContent = player_scores.WHITE;
+    black_points.textContent = player_scores.BLACK;
 
     const array = board.get();
 
