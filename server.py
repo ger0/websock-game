@@ -35,11 +35,10 @@ def main():
 
 
 class Board:
-    groups = {State.WHITE: [], State.BLACK: []}
-    score = {State.WHITE: 0, State.BLACK: 0}
-
     def __init__(self):
         self.data = [State.EMPTY] * (conf.map_dimensions * conf.map_dimensions)
+        self.groups = {State.WHITE: [], State.BLACK: []}
+        self.score = {State.WHITE: 0, State.BLACK: 0}
         self.previous_groups = None
 
     def iter(self, x: int, y: int):
@@ -47,7 +46,7 @@ class Board:
             return None
         return x + y * (conf.map_dimensions)
 
-    # returns a dictionary containing position entries for two colour types
+    # returns a dictionary containing position entries for the colours
     def get_neighbours(self, x: int, y: int):
         neighbours = {State.WHITE: [], State.BLACK: [], State.EMPTY: []}
         directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
@@ -60,37 +59,33 @@ class Board:
             neighbours[state].append((nx, ny))
         return neighbours
 
+    # inserts a new position in the groups of stones
+    # merges them if neccessary
     def merge_groups(self, new_pos: (int, int), state: State):
         self.previous_groups = deepcopy(self.groups)
         neighbours = self.get_neighbours(new_pos[0], new_pos[1])
-        groups = deepcopy(self.groups[state])
         merge_idxs = []
         # find groups to which the neighbours belong to and try to join them
         # we don't want any duplicates in our set of positions
         merge_group = set()
         for pos in neighbours[state]:
-            for i, _ in enumerate(groups):
-                if pos in groups[i]:
+            for i, _ in enumerate(self.groups[state]):
+                if pos in self.groups[state][i]:
                     merge_idxs.append(i)
-                    merge_group.update(groups[i])
-        groups = [groups[i] for i, _ in enumerate(groups) if i not in merge_idxs]
-
-        # print(f"Pos: {new_pos} inserted in a group of: {merge_group}!")
-        print("ALL GROUPS: ", self.groups, id(self.groups))
+                    merge_group.update(self.groups[state][i])
+        self.groups[state] = [self.groups[
+            state][i] for i, _ in enumerate(self.groups[state])
+            if i not in merge_idxs]
         merge_group.add(new_pos)
-        groups.append(merge_group)
-        # print(f"Groups:: {groups}")
-        self.groups[state] = deepcopy(groups)
-        # print(f"Groups:::: {self.groups[state]}")
+        self.groups[state].append(merge_group)
 
+    # removes each group from the group_idcs list and returning removed poses
     def remove_group(self, group_idcs: int, state: State):
         removed_poses = []
-        # iterating over reverse list -- SUPER DANGEROUS
+        # iterating over reverse list -- TODO: DANGEROUS --
         for idx in reversed(group_idcs):
-            # print(f"Removing index: {idx}, OF ALL: {self.groups[state]}")
             poses = self.groups[state].pop(idx)
             for pos in poses:
-                # print("REMOVED POS:", pos)
                 iter = self.iter(pos[0], pos[1])
 
                 self.data[iter] = State.EMPTY
@@ -98,7 +93,7 @@ class Board:
         self.score[state.next_turn()] += len(removed_poses)
         return removed_poses if len(removed_poses) > 0 else None
 
-    # checks if any of the groups of the enemys colour lack an empty space
+    # returns number of encircled stones and indices of encircled groups
     def get_encircled_groups(self, state: State):
         # enemys colour
         encircled_groups = []
@@ -106,26 +101,26 @@ class Board:
         for i, group in enumerate(self.groups[state]):
             empty_spaces = 0
             points = 0
+
+            # checks if any of the groups of the colour lack an empty space
             for pos in group:
                 neighbours = self.get_neighbours(pos[0], pos[1])
                 empty_spaces += len(neighbours[State.EMPTY])
                 points += 1
-                # print(f"empty space for {pos}, {neighbours[State.EMPTY]}")
-            # print(f"{group}, {empty_spaces}")
+
+            # found an encircled group of stones
             if empty_spaces == 0:
-                print(f"ENCIRCLED GROUP {i}{group}")
-                #print(f"ALL GROUPS: {self.groups}")
                 encircled_groups.append(i)
                 gained_points += points
-        # returns all removed positions
-        # return self.remove_group(encircled_groups, colour)
         # returns gained points and indices pointing at encircled groups
         return (gained_points, encircled_groups)
 
+    # puts the stone on the board
     def put(self, m: Move_Update):
         self.merge_groups((m.x, m.y), m.state)
         self.data[self.iter(m.x, m.y)] = m.state
 
+    # reverts the previous move
     def revert_move(self, m: Move_Update):
         self.groups = deepcopy(self.previous_groups)
         self.data[self.iter(m.x, m.y)] = State.EMPTY
@@ -140,7 +135,7 @@ class Session:
         self.counter = 0
         self.board = Board()
         self.tokens = [None] * 2
-        self.turn = State.WHITE
+        self.turn = State.BLACK
         self.ws = {State.WHITE: None, State.BLACK: None}
         self.id = id
 
@@ -149,6 +144,8 @@ class Session:
         config.this_colour = session_info['colour'].value
         config.token = session_info['token']
         config.id = session_info['id']
+        config.black_score = self.board.score[State.BLACK]
+        config.white_score = self.board.score[State.WHITE]
         data = json.dumps(config.__dict__)
         data = bytearray(data, 'ascii')
         await self.send(Opcode.SESSION, data, ws)
@@ -197,7 +194,6 @@ class Session:
             sent: {ws}, expected: {self.ws[colour]}")
             return
 
-        print(f"[{self.id}] - {move.x}, {move.y}")
         if move.x == conf.map_dimensions or move.y == conf.map_dimensions:
             print(f"[{self.id}] - Passed the move")
             self.turn = self.turn.next_turn()
@@ -210,9 +206,12 @@ class Session:
         enemy_colour = move.state.next_turn()
 
         # points gain for the placement (to be captured by the turnmaker)
-        (gained_pts, rmv_indices) = self.board.get_encircled_groups(enemy_colour)
+        (gained_pts, rmv_indices) = \
+            self.board.get_encircled_groups(enemy_colour)
+
         # points loss for the placement (to be captured by the enemy)
         (lost_pts, _) = self.board.get_encircled_groups(colour)
+
         # the move is illegal when the turnmaker looses more than he would gain
         if lost_pts != 0 and gained_pts <= lost_pts:
             self.board.revert_move(move)
@@ -220,8 +219,8 @@ class Session:
             print(f"[{self.id}] - Reverted: {self.turn} at {(move.x, move.y)}")
             rmv_indices = None
             return
-        # else
 
+        # else
         rmv_poses = self.board.remove_group(rmv_indices, enemy_colour)
         move.removed_poses = rmv_poses
         print(f"[{self.id}] - Updated: {self.turn} at {(move.x, move.y)}")

@@ -3,8 +3,8 @@ from enum import Enum
 
 class State(Enum):
     EMPTY = 0
-    WHITE = 1
-    BLACK = 2
+    BLACK = 1
+    WHITE = 2
 
     def to_byte(self):
         return self.value.to_bytes(1)[0]

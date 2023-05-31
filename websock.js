@@ -29,22 +29,22 @@ const socket = new WebSocket(`ws://${address}/ws`);
 
 const Value = {
     EMPTY : 0,
-    WHITE : 1,
-    BLACK : 2
+    BLACK : 1,
+    WHITE : 2
 }
 
 let player_scores = {
-    WHITE: 0,
-    BLACK: 0
+    BLACK: 0,
+    WHITE: 0
 }
 
-let current_turn = Value.WHITE;
+let current_turn = Value.BLACK;
 
 var session_config = {
     map_dimensions  : 19,
     colours         : ['white', 'black'],
     circle_size     : 40,
-    this_colour     : Value.WHITE,
+    this_colour     : Value.BLACK,
     token           : null
 }
 
@@ -119,12 +119,16 @@ load_configuration = function(data) {
     session_config.this_colour     = json.this_colour;
     session.token                  = json.token;
     session.id                     = json.id;
+
     localStorage.setItem('token', session.token);
     localStorage.setItem('session_id', session.id);
 
     console.log("This colour: ", session_config.this_colour);
     console.log("Token: ", session.token);
     console.log("Session ID: ", session.id);
+
+    player_scores.WHITE = json.white_score;
+    player_scores.BLACK = json.black_score;
 
     canvas.width    = session_config.map_dimensions * session_config.circle_size;
     canvas.height   = session_config.map_dimensions * session_config.circle_size;
