@@ -138,6 +138,7 @@ class Session:
         self.turn = State.BLACK
         self.ws = {State.WHITE: None, State.BLACK: None}
         self.id = id
+        self.is_ending = False
 
     async def send_session_config(self, session_info, ws: WebSocket):
         config = conf
@@ -186,21 +187,31 @@ class Session:
         data = self.board.to_array()
         await self.send(Opcode.BOARD, data, ws)
 
+    async def pass_turn(self, ws: WebSocket):
+        if self.counter != 2 or ws != self.ws[self.turn]:
+            return True
+
+        print(f"[{self.id}] - Passed the move")
+
+        if self.is_ending is True:
+            self.turn = self.turn.next_turn()
+            await self.broadcast(Opcode.FIN, [])
+            self.tokens = [-1, -1]
+            return False
+
+        self.is_ending = True
+        self.turn = self.turn.next_turn()
+        await self.broadcast(Opcode.PASS, [])
+        return True
+
     async def update_board(self, move: Move_Update, ws: WebSocket):
         colour = self.turn
-        print(f"[{self.id}] - Current turn: {self.turn}")
         if self.counter != 2 or ws != self.ws[colour]:
             print(f"[{self.id}] - Denied update! connections: {self.counter}, \
             sent: {ws}, expected: {self.ws[colour]}")
             return
 
-        if move.x == conf.map_dimensions or move.y == conf.map_dimensions:
-            print(f"[{self.id}] - Passed the move")
-            self.turn = self.turn.next_turn()
-            move.state = State.EMPTY
-            await self.broadcast(Opcode.UPDATE, move.to_bytes())
-            return
-
+        self.is_ending = False
         move.state = colour
         self.board.put(move)
         enemy_colour = move.state.next_turn()
@@ -226,6 +237,7 @@ class Session:
         print(f"[{self.id}] - Updated: {self.turn} at {(move.x, move.y)}")
         await self.broadcast(Opcode.UPDATE, move.to_bytes())
         self.turn = self.turn.next_turn()
+        print(f"[{self.id}] - Current turn: {self.turn}")
 
     async def send(self, req: Opcode, bytes, ws: WebSocket):
         data = [req.to_byte(), *bytes]
@@ -264,7 +276,8 @@ class ConnectionManager:
 
     async def run(self, ws: WebSocket):
         session = None
-        while True:
+        is_running = True
+        while is_running:
             data = await ws.receive_bytes()
             request = Opcode(data[0])
             data = data[1:]
@@ -286,6 +299,11 @@ class ConnectionManager:
                 (x, y) = (data[0], data[1])
                 update = Move_Update(x, y)
                 await session.update_board(update, ws)
+
+            if (session and request == Opcode.PASS):
+                is_running = await session.pass_turn(ws)
+                if is_running is False:
+                    self.disconnect(ws)
 
     # if the game exists already, send the player a previous state of the board
     async def connect(self, ws: WebSocket):

@@ -61,7 +61,9 @@ const Opcode = {
     SESSION : 0,
     CONFIG  : 1,
     BOARD   : 2,
-    UPDATE  : 3
+    UPDATE  : 3,
+    PASS    : 4,
+    FIN     : 5
 }
 
 // sending game updates to the server
@@ -96,12 +98,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (session_config.this_colour != current_turn) {
             return;
         }
-        const data = new Array(2);
-        [data[0], data[1]] = [
-            session_config.map_dimensions, 
-            session_config.map_dimensions
-        ];
-        send(Opcode.UPDATE, data);
+        send(Opcode.PASS, new Array(0));
     });
 });
 
@@ -124,7 +121,7 @@ load_configuration = function(data) {
     localStorage.setItem('session_id', session.id);
 
     console.log("This colour: ", session_config.this_colour);
-    console.log("Token: ", session.token);
+    console.log("Received Token: ", session.token);
     console.log("Session ID: ", session.id);
 
     player_scores.WHITE = json.white_score;
@@ -132,6 +129,9 @@ load_configuration = function(data) {
 
     canvas.width    = session_config.map_dimensions * session_config.circle_size;
     canvas.height   = session_config.map_dimensions * session_config.circle_size;
+
+    const container = document.getElementsByClassName('container')[0];
+    container.style.display = 'block';
 }
 
 // When the connection is open
@@ -178,12 +178,6 @@ handle_request = function(opcode, data) {
         case Opcode.UPDATE:
             console.log("Received Game Update");
             let [val, x, y] = [data[0], data[1], data[2]];
-            if (val == Value.EMPTY) {
-                current_turn = next_turn(current_turn);
-                console.log("Recieved Passed Turn");
-                draw_board(board);
-                break;
-            }
             let index = 0;
             board.set(x, y, val);
             console.log(`x: ${x}, y: ${y}, value: ${val}`);
@@ -205,6 +199,23 @@ handle_request = function(opcode, data) {
             }
             current_turn = next_turn(val);
             draw_board(board);
+            break;
+
+        case Opcode.PASS:
+            console.log("Recieved Passed Turn");
+            current_turn = next_turn(current_turn);
+            draw_board(board);
+            break;
+
+        case Opcode.FIN:
+            const container = document.getElementsByClassName('container')[0];
+            container.innerHTML = '';
+            container.style.textAlign = 'center';
+            container.style.fontWeight = 'bold';
+            container.style.fontSize = '24px';
+            container.textContent = 'Black score: ' + player_scores.BLACK + 
+                ', White score: ' + player_scores.WHITE;
+            socket.close();
             break;
     }
 }
