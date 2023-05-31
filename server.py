@@ -1,5 +1,6 @@
 import struct
 import json
+from copy import deepcopy
 import secrets
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -39,6 +40,7 @@ class Board:
 
     def __init__(self):
         self.data = [State.EMPTY] * (conf.map_dimensions * conf.map_dimensions)
+        self.previous_groups = None
 
     def iter(self, x: int, y: int):
         if not (0 <= x < conf.map_dimensions and 0 <= y < conf.map_dimensions):
@@ -59,8 +61,9 @@ class Board:
         return neighbours
 
     def merge_groups(self, new_pos: (int, int), state: State):
+        self.previous_groups = deepcopy(self.groups)
         neighbours = self.get_neighbours(new_pos[0], new_pos[1])
-        groups = self.groups[state]
+        groups = deepcopy(self.groups[state])
         merge_idxs = []
         # find groups to which the neighbours belong to and try to join them
         # we don't want any duplicates in our set of positions
@@ -70,19 +73,24 @@ class Board:
                 if pos in groups[i]:
                     merge_idxs.append(i)
                     merge_group.update(groups[i])
-        for idx in merge_idxs:
-            groups = [groups[i] for i, _ in enumerate(groups) if i not in merge_idxs]
+        groups = [groups[i] for i, _ in enumerate(groups) if i not in merge_idxs]
 
         # print(f"Pos: {new_pos} inserted in a group of: {merge_group}!")
+        print("ALL GROUPS: ", self.groups, id(self.groups))
         merge_group.add(new_pos)
         groups.append(merge_group)
-        self.groups[state] = groups
+        # print(f"Groups:: {groups}")
+        self.groups[state] = deepcopy(groups)
+        # print(f"Groups:::: {self.groups[state]}")
 
     def remove_group(self, group_idcs: int, state: State):
         removed_poses = []
-        for idx in group_idcs:
+        # iterating over reverse list -- SUPER DANGEROUS
+        for idx in reversed(group_idcs):
+            # print(f"Removing index: {idx}, OF ALL: {self.groups[state]}")
             poses = self.groups[state].pop(idx)
             for pos in poses:
+                # print("REMOVED POS:", pos)
                 iter = self.iter(pos[0], pos[1])
 
                 self.data[iter] = State.EMPTY
@@ -91,26 +99,36 @@ class Board:
         return removed_poses if len(removed_poses) > 0 else None
 
     # checks if any of the groups of the enemys colour lack an empty space
-    def get_encircled_positions(self, state: State):
+    def get_encircled_groups(self, state: State):
         # enemys colour
-        colour = state.next_turn()
-        removed_groups = []
-        for i, group in enumerate(self.groups[colour]):
+        encircled_groups = []
+        gained_points = 0
+        for i, group in enumerate(self.groups[state]):
             empty_spaces = 0
+            points = 0
             for pos in group:
                 neighbours = self.get_neighbours(pos[0], pos[1])
                 empty_spaces += len(neighbours[State.EMPTY])
+                points += 1
                 # print(f"empty space for {pos}, {neighbours[State.EMPTY]}")
             # print(f"{group}, {empty_spaces}")
             if empty_spaces == 0:
-                # print(f"ENCIRCLED GROUP {i}{group}")
-                removed_groups.append(i)
+                print(f"ENCIRCLED GROUP {i}{group}")
+                #print(f"ALL GROUPS: {self.groups}")
+                encircled_groups.append(i)
+                gained_points += points
         # returns all removed positions
-        return self.remove_group(removed_groups, colour)
+        # return self.remove_group(encircled_groups, colour)
+        # returns gained points and indices pointing at encircled groups
+        return (gained_points, encircled_groups)
 
     def put(self, m: Move_Update):
         self.merge_groups((m.x, m.y), m.state)
         self.data[self.iter(m.x, m.y)] = m.state
+
+    def revert_move(self, m: Move_Update):
+        self.groups = deepcopy(self.previous_groups)
+        self.data[self.iter(m.x, m.y)] = State.EMPTY
 
     # converts an array of States(ints) into an array of single bytes
     def to_array(self):
@@ -189,9 +207,23 @@ class Session:
 
         move.state = colour
         self.board.put(move)
-        removed_poses = self.board.get_encircled_positions(colour)
-        move.removed_poses = removed_poses
+        enemy_colour = move.state.next_turn()
 
+        # points gain for the placement (to be captured by the turnmaker)
+        (gained_pts, rmv_indices) = self.board.get_encircled_groups(enemy_colour)
+        # points loss for the placement (to be captured by the enemy)
+        (lost_pts, _) = self.board.get_encircled_groups(colour)
+        # the move is illegal when the turnmaker looses more than he would gain
+        if lost_pts != 0 and gained_pts <= lost_pts:
+            self.board.revert_move(move)
+            print(f"gain: {gained_pts}, lost {lost_pts}")
+            print(f"[{self.id}] - Reverted: {self.turn} at {(move.x, move.y)}")
+            rmv_indices = None
+            return
+        # else
+
+        rmv_poses = self.board.remove_group(rmv_indices, enemy_colour)
+        move.removed_poses = rmv_poses
         print(f"[{self.id}] - Updated: {self.turn} at {(move.x, move.y)}")
         await self.broadcast(Opcode.UPDATE, move.to_bytes())
         self.turn = self.turn.next_turn()

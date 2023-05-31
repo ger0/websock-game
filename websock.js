@@ -64,6 +64,7 @@ const Opcode = {
     UPDATE  : 3
 }
 
+// sending game updates to the server
 document.addEventListener('DOMContentLoaded', function() {
     const canvas = document.getElementById('canvas');
 
@@ -90,13 +91,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const pass_button = document.getElementById('passButton');
 
+    // pass the turn
     pass_button.addEventListener('click', function() {
+        if (session_config.this_colour != current_turn) {
+            return;
+        }
         const data = new Array(2);
         [data[0], data[1]] = [
             session_config.map_dimensions, 
             session_config.map_dimensions
         ];
-        console.log(data[0], data[1]);
         send(Opcode.UPDATE, data);
     });
 });
@@ -172,6 +176,7 @@ handle_request = function(opcode, data) {
             let [val, x, y] = [data[0], data[1], data[2]];
             if (val == Value.EMPTY) {
                 current_turn = next_turn(current_turn);
+                console.log("Recieved Passed Turn");
                 draw_board(board);
                 break;
             }
