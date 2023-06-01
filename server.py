@@ -1,5 +1,8 @@
+#!/bin/python3
+
 import struct
 import json
+import uvicorn
 from copy import deepcopy
 import secrets
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -8,15 +11,17 @@ from fastapi.staticfiles import StaticFiles
 from utils import State, Move_Update, Opcode, Config
 
 
-app = FastAPI()
-app.mount("/static", StaticFiles(directory="."), name="static")
-
 global conf
 
 
 # entry point
 def main():
+    global app
     global conf
+
+    app = FastAPI()
+    app.mount("/static", StaticFiles(directory="."), name="static")
+
     conf = load_config('config.json')
     html_page = load_html('index.html')
     manager = ConnectionManager()
@@ -32,6 +37,8 @@ def main():
     @app.get("/favicon.ico", include_in_schema=False)
     def return_favicon():
         return "No favicon"
+
+    uvicorn.run(app, host='0.0.0.0', port=8000)
 
 
 class Board:
@@ -145,6 +152,7 @@ class Session:
         config.this_colour = session_info['colour'].value
         config.token = session_info['token']
         config.id = session_info['id']
+        config.curr_turn = self.turn.value
         config.black_score = self.board.score[State.BLACK]
         config.white_score = self.board.score[State.WHITE]
         data = json.dumps(config.__dict__)
@@ -339,5 +347,5 @@ def load_html(filename):
         return html
 
 
-if __name__ == "server":
+if __name__ == "__main__":
     main()

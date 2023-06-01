@@ -110,6 +110,7 @@ send = function(opcode, array) {
 load_configuration = function(data) {
     const json = JSON.parse(String.fromCharCode(...data));
 
+    current_turn    = json.curr_turn
     session_config.map_dimensions  = json.map_dimensions;
     session_config.colours         = json.circle_colours;
     session_config.circle_size     = json.circle_size;
